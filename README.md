@@ -10,10 +10,10 @@ the buffer to be cleared, the stream closed and then re-opened for /dev/tty. You
 continue using the interpreter interactvly with the added forth words.
 
 The NEXT word is one instruction less (faster ?)
-        .macro NEXT
-        ldr r0, [r10], #4
-        ldr r15,[r0]
-        .endm
+    .macro NEXT
+    ldr r0, [r10], #4
+    ldr r15,[r0]
+    .endm
 
 
 ## To Compile
