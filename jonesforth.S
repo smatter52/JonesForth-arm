@@ -27,21 +27,26 @@
 @
 @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
 
-        .set JONES_VERSION,47
-        #include <asm/unistd.h>
+        .set JONES_VERSION,48
 
+	__NR_brk		= 45
+   __NR_write	= 4
+   __NR_read	= 3
+   __NR_exit	= 1
+   __NR_open	= 5
+   __NR_close	= 6
+   __NR_creat	= 8
+          
 @ Reserve three special registers:
 @ DSP (r13) points to the top of the data stack
 @ RSP (r11) points to the top of the return stack
 @ IP (r10) points to the next forth word that will be executed
 
-        #define DSP r13
-        #define RSP r11
-        #define IP r10
-
+tty:	.asciz	"/dev/tty"
+       
 @ Define stdin, stdout, stderr file descriptors numbers
 
-        .set stdin, 0
+        .set stdin,  0
         .set stdout, 1
         .set stderr, 2
 
@@ -52,28 +57,27 @@
 @   3. executes the forth word
 
         .macro NEXT
-        ldr r0, [IP], #4
-        ldr r1, [r0]
-        bx r1
+        ldr r0, [r10], #4
+        ldr r15,[r0]
         .endm
 
 @ Define macros to push and pop from the data
 @ and return stacks
 
         .macro PUSHRSP reg
-        str \reg, [RSP, #-4]!
+        str \reg, [r11, #-4]!
         .endm
 
         .macro POPRSP reg
-        ldr \reg, [RSP], #4
+        ldr \reg, [r11], #4
         .endm
 
         .macro push reg
-        str \reg, [DSP, #-4]!
+        str \reg, [r13, #-4]!
         .endm
 
         .macro pop reg
-        ldr \reg, [DSP], #4
+        ldr \reg, [r13], #4
         .endm
 
 @ DOCOL is the assembly subroutine that is called
@@ -85,8 +89,8 @@
         .text
         .align 2
 DOCOL:
-        PUSHRSP IP
-        add IP, r0, #4
+        PUSHRSP r10
+        add r10, r0, #4
         NEXT
 
 @ _start is the program entry point
@@ -96,10 +100,10 @@ DOCOL:
         .global _start
 _start:
         ldr r0, =var_S0
-        str DSP, [r0]           @ Save the original stack position in var_S0
-        ldr RSP, =return_stack_top      @ Set the initial return stack position
+        str r13, [r0]           @ Save the original stack position in var_S0
+        ldr r11, =return_stack_top      @ Set the initial return stack position
         bl  set_up_data_segment         @ Set up the data segment
-        ldr IP, =cold_start             @ Make the IP point to cold_start
+        ldr r10, =cold_start             @ Make the IP point to cold_start
         NEXT                            @ Start the interpreter
 
 
@@ -209,7 +213,7 @@ var_\name :
 @ (See DOCOL)
 
 defcode "EXIT",4,,EXIT
-        POPRSP IP
+        POPRSP r10
         NEXT
 
 @ DIVMOD computes the unsigned integer division and remainder
@@ -354,10 +358,10 @@ defcode "DUP",3,,DUP
 @ OVER ( a b c -- a b c b ) pushes the second element on top
 
 defcode "OVER",4,,OVER
-        @ ( a b c) r0 = b we take the element at DSP + 4
-        @ and since DSP is the top of the stack we will load
+        @ ( a b c) r0 = b we take the element at r13 + 4
+        @ and since r13 is the top of the stack we will load
         @ the second element of the stack in r0
-        ldr r0, [DSP, #4]
+        ldr r0, [r13, #4]
         push r0         @ ( a b c b )
         NEXT
 
@@ -387,7 +391,7 @@ defcode "-ROT",4,,NROT
 
 defcode "?DUP", 4,,QDUP
         @ (x --)
-        ldr r0, [DSP]   @ r0 = x
+        ldr r0, [r13]   @ r0 = x
         cmp r0, #0      @ test if x==0
         beq 1f          @ if x==0 we jump to 1
         push r0         @ ( a a ) it's now duplicated
@@ -560,7 +564,7 @@ defcode "INVERT",6,,INVERT
 @ into the stack and skips it (since the literal is not executable).
 
 defcode "LIT", 3,, LIT
-        ldr r1, [IP], #4
+        ldr r1, [r10], #4
         push r1
         NEXT
 
@@ -665,27 +669,27 @@ defcode "R>",2,,FROMR
 @ RDROP drops the top element from the return stack
 
 defcode "RDROP",5,,RDROP
-        add RSP,RSP,#4
+        add r11,r11,#4
         NEXT
 
 @ RSP@, RSP!, DSP@, DSP! manipulate the return and data stack pointers
 
-defcode "RSP@",4,,RSPFETCH
-        push RSP
+defcode "RSP@",4,,r11FETCH
+        push r11
         NEXT
 
-defcode "RSP!",4,,RSPSTORE
-        pop RSP
+defcode "RSP!",4,,r11STORE
+        pop r11
         NEXT
 
-defcode "DSP@",4,,DSPFETCH
-        mov r0, DSP
+defcode "DSP@",4,,r13FETCH
+        mov r0, r13
         push r0
         NEXT
 
-defcode "DSP!",4,,DSPSTORE
+defcode "DSP!",4,,r13STORE
         pop r0
-        mov r0, DSP
+        mov r0, r13
         NEXT
 
 @ KEY ( -- c ) Reads a key from the user
@@ -729,11 +733,22 @@ _KEY:
         str r1, [r4]            @ update bufftop
         b       _KEY
 
-2:                              @ read syscall returned with an error
-        mov r0, #0
-        mov r7, #__NR_exit      @ exit(0)
-        swi 0
+2:                              @ read syscall returned 0 chars (EOF)
+         ldr r0, =buffer        @ Reset buffer pointers
+         ldr r1, =currkey
+         str r0, [r1]
+         ldr r1, =bufftop
+         str r0, [r1]
+         mov r0, #0              @ Close stdin file
+         mov r7, #__NR_close
+         swi 0
+         ldr r0, =tty            @ Open tty for rd_only
+         mov r1, #0
+         mov r2, #0
+         mov r7, #__NR_open
+			swi 0
 
+			bx			lr
 
 @ buffer for KEY
 
@@ -1107,15 +1122,15 @@ defword "HIDE",4,,HIDE
 @ only works in compile mode. Implementation is identical to LIT.
 
 defcode "'",1,,TICK
-        ldr r1, [IP], #4
+        ldr r1, [r10], #4
         push r1
         NEXT
 
 @ BRANCH ( -- ) changes IP by offset which is found in the next codeword
 
 defcode "BRANCH",6,,BRANCH
-        ldr r1, [IP]
-        add IP, IP, r1
+        ldr r1, [r10]
+        add r10, r10, r1
         NEXT
 
 @ 0BRANCH ( p -- ) branch if the top of the stack is zero
@@ -1124,18 +1139,18 @@ defcode "0BRANCH",7,,ZBRANCH
         pop r0
         cmp r0, #0              @ if the top of the stack is zero
         beq code_BRANCH         @ then branch
-        add IP, IP, #4          @ else, skip the offset
+        add r10, r10, #4          @ else, skip the offset
         NEXT
 
 @ LITSTRING ( -- ) as LIT but for strings
 
 defcode "LITSTRING",9,,LITSTRING
-        ldr r0, [IP], #4        @ read length
-        push IP                 @ push address
+        ldr r0, [r10], #4        @ read length
+        push r10                 @ push address
         push r0                 @ push string
-        add IP, IP, r0          @ skip the string
-        add IP, IP, #3          @ find the next 4-byte boundary
-        and IP, IP, #~3
+        add r10, r10, r0          @ skip the string
+        add r10, r10, #3          @ find the next 4-byte boundary
+        and r10, r10, #~3
         NEXT
 
 @ TELL ( addr length -- ) writes a string to stdout
@@ -1151,7 +1166,7 @@ defcode "TELL",4,,TELL
 @ QUIT ( -- ) the first word to be executed
 
 defword "QUIT", 4,, QUIT
-        .int RZ, RSPSTORE       @ Set up return stack
+        .int RZ, r11STORE       @ Set up return stack
         .int INTERPRET          @ Interpret a word
         .int BRANCH,-8          @ loop
 

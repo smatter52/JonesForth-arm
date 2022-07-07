@@ -3,45 +3,33 @@
 An ARM port of X86 JonesForth by Richard W.M. Jones <rich@annexia.org>
 at <http://annexia.org/forth>.
 
-## What is this ?
+## What have I changed ?
 
-Jonesforth-ARM is a Forth interpreter developed for ARM.
+Very little. When reading tokens with KEY from a stream, the end of the stream causes
+the buffer to be cleared, the stream closed and then re-opened for /dev/tty. You can then
+continue using the interpreter interactvly with the added forth words.
 
-The algorithm for our unsigned DIVMOD instruction is extracted from 'ARM
-Software Development Toolkit User Guide v2.50' published by ARM in 1997-1998
+The NEXT word is one instruction less (faster ?)
+        .macro NEXT
+        ldr r0, [r10], #4
+        ldr r15,[r0]
+        .endm
 
-Compared to the original interpreter:
 
- * We did not keep the jonesforth.f section allowing to compile assembly from
-   the Forth interpreter because it was X86 specific.
+## To Compile
 
- * We pass all the original JonesForth's tests on ARM (except one which
-   depends on the above X86 assembly compilation).
+gcc -nostdlib -static forth.s -oforth
 
- * We added a native signed DIVMOD instruction (S/MOD)
 
-Another project porting Jonesforth on ARM is ongoing at
-https://github.com/phf/forth
+## To Run
 
-## Build and run instructions
+forth < forth.f
 
-If you are building on the ARM target, just type,
 
-	$ make
+## Background reading
 
-to build the forth interpreter.
+Threaded Interptetive Languages by R. G. Loeliger
 
-After building, we recommend that you run the test-suite by executing,
 
-	$ make test
 
-To launch the forth interpreter, type
-
-	$ cat jonesforth.f - | ./jonesforth
-
-## Contributors:
-
-ABECASSIS Felix, BISPO VIEIRA Ricardo, BLANC Benjamin, BORDESSOULES Arthur,
-BOUDJEMAI Yassine, BRICAGE Marie, ETSCHMANN Marc, GAYE Ndeye Aram,
-GONCALVES Thomas, GOUGEAUD Sebastien, HAINE Christopher, OLIVEIRA Pablo,
-PLAZA ONATE Florian, POPOV Mihail
+ChiefEngineer
